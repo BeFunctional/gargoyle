@@ -11,8 +11,12 @@ import Paths_gargoyle_postgresql_nix
 import System.Which
 
 postgresNix :: IO (Gargoyle FilePath ByteString)
-postgresNix = do
+postgresNix = postgresNixWithInitOpts defaultInitOpts
+
+postgresNixWithInitOpts :: [String] -- ^ Options to pass to @initdb@
+                        -> IO (Gargoyle FilePath ByteString)
+postgresNixWithInitOpts initOpts = do
   bindir <- getBinDir
-  return $ (mkPostgresGargoyle $(staticWhich "pg_ctl") shutdownPostgresFast)
+  return $ (mkPostgresGargoyleWithInitOpts initOpts $(staticWhich "pg_ctl") shutdownPostgresFast)
     { _gargoyle_exec = bindir <> "/gargoyle-nix-postgres-monitor"
     }

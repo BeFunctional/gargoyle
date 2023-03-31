@@ -23,6 +23,15 @@ import Gargoyle
 defaultPostgres :: Gargoyle FilePath ByteString
 defaultPostgres = mkPostgresGargoyle "pg_ctl" shutdownPostgresFast
 
+-- | Default options to pass to @initdb@
+defaultInitOpts :: [String]
+defaultInitOpts =
+  [ "-U", "postgres"
+  , "--no-locale"
+  , "-E", "UTF8"
+  , "-A", "trust"
+  ]
+
 -- | Create a gargoyle by telling it where the relevant PostgreSQL executables are and
 -- what it should do in order to shut down the server. This module provides two options:
 -- 'shutdownPostgresSmart' and 'shutdownPostgresFast'.
@@ -31,9 +40,20 @@ mkPostgresGargoyle :: FilePath -- ^ Path to `pg_ctl`
                    -> Gargoyle FilePath ByteString
                    -- ^ The 'Gargoyle' returned provides to client code the connection
                    -- string that can be used to connect to the PostgreSQL server
-mkPostgresGargoyle pgCtlPath shutdownFun = Gargoyle
+mkPostgresGargoyle = mkPostgresGargoyleWithInitOpts defaultInitOpts
+
+-- | Create a gargoyle by telling it options to pass to @initdb@, where the relevant PostgreSQL
+-- executables are, and what it should do in order to shut down the server. This module
+-- provides two shutdown options: 'shutdownPostgresSmart' and 'shutdownPostgresFast'.
+mkPostgresGargoyleWithInitOpts :: [String] -- ^ Options to pass to @initdb@
+                               -> FilePath -- ^ Path to @pg_ctl@
+                               -> (FilePath -> FilePath -> IO ()) -- ^ Shutdown function
+                               -> Gargoyle FilePath ByteString
+                               -- ^ The 'Gargoyle' returned provides to client code the connection
+                               -- string that can be used to connect to the PostgreSQL server
+mkPostgresGargoyleWithInitOpts initOpts pgCtlPath shutdownFun = Gargoyle
   { _gargoyle_exec = "gargoyle-postgres-monitor"
-  , _gargoyle_init = initLocalPostgres pgCtlPath
+  , _gargoyle_init = initLocalPostgresWithOpts initOpts pgCtlPath
   , _gargoyle_start = startLocalPostgres pgCtlPath
   , _gargoyle_stop = shutdownFun pgCtlPath
   , _gargoyle_getInfo = getLocalPostgresConnectionString
@@ -44,17 +64,21 @@ mkPostgresGargoyle pgCtlPath shutdownFun = Gargoyle
 initLocalPostgres :: FilePath -- ^ Path to PostgreSQL `pg_ctl` executable
                   -> FilePath -- ^ Path in which to initialize PostgreSQL Server
                   -> IO ()
-initLocalPostgres binPath dbDir = do
+initLocalPostgres = initLocalPostgresWithOpts defaultInitOpts
+
+-- | Create a new PostgreSQL database in a local folder, passing the specified
+-- options to @initdb@.  This is a low level function used to define the
+-- PostgreSQL 'Gargoyle'.
+initLocalPostgresWithOpts :: [String] -- ^ Options to pass to @initdb@
+                          -> FilePath -- ^ Path to PostgreSQL @pg_ctl@ executable
+                          -> FilePath -- ^ Path in which to initialize PostgreSQL Server
+                          -> IO ()
+initLocalPostgresWithOpts opts binPath dbDir = do
   devNull <- openFile "/dev/null" WriteMode
   (_, _, _, initdb) <- createProcess (proc binPath
     [ "init"
     , "-D", dbDir
-    , "-o", escapeMany
-      [ "-U", "postgres"
-      , "--no-locale"
-      , "-E", "UTF8"
-      , "-A", "trust"
-      ]
+    , "-o", escapeMany opts
     ]) { std_in = NoStream, std_out = UseHandle devNull, std_err = Inherit }
   r <- waitForProcess initdb
   case r of
